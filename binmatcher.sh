@@ -19,7 +19,7 @@ TARGET="${1:-}"
 
 # ============================================================
 # COMPREHENSIVE BINARY SIGNATURE DATABASE
-# Built from GTFOBins [citation:2][citation:6][citation:10]
+# Built from GTFOBins
 # ============================================================
 
 declare -a SIGNATURES=(
@@ -364,8 +364,6 @@ declare -a SIGNATURES=(
 
     # ============================================================
     # GTFOBins PRIVILEGE ESCALATION VECTORS
-    # These binaries are known to be exploitable with SUID/Sudo
-    # Source: GTFOBins [citation:2][citation:10]
     # ============================================================
     "find|GNU find|PrivEsc|GTFOBins: SUID find -> shell"
     "awk|GNU Awk|PrivEsc|GTFOBins: SUID awk -> shell"
@@ -496,7 +494,6 @@ identify_binary() {
         readable=0
         echo -e "\n${YELLOW}⚠️  Binary is NOT readable (no read permission)${NC}"
         echo -e "${YELLOW}💡 Try: sudo ./bin_detective.sh $bin${NC}"
-        echo -e "${YELLOW}💡 Or: cp $bin /tmp/ && chmod +r /tmp/$(basename $bin) && ./bin_detective.sh /tmp/$(basename $bin)${NC}"
     fi
     
     local version=""
@@ -512,6 +509,7 @@ identify_binary() {
         fileinfo=$(file "$bin" 2>/dev/null)
         strings_sample=$(strings "$bin" 2>/dev/null | head -50)
     else
+        # Still try to get version even if unreadable (execution doesn't need read)
         version=$(get_version_output "$bin")
         help=$(get_help_output "$bin")
         fileinfo=$(file "$bin" 2>/dev/null)
@@ -526,31 +524,38 @@ identify_binary() {
         IFS='|' read -r signature original_name category description <<< "$entry"
         local confidence=0
         
+        # Version output gets HIGHEST weight (60 points)
         if [ -n "$version" ] && echo "$version" | grep -qi "$signature"; then
-            confidence=$((confidence + 45))
+            confidence=$((confidence + 60))
         fi
         
+        # Help output (20 points)
         if [ -n "$help" ] && echo "$help" | grep -qi "$signature"; then
-            confidence=$((confidence + 25))
-        fi
-        
-        if [ $readable -eq 1 ] && [ -n "$comment" ] && echo "$comment" | grep -qi "$signature"; then
             confidence=$((confidence + 20))
         fi
         
-        if [ $readable -eq 1 ] && [ -n "$strings_sample" ] && echo "$strings_sample" | grep -qi "$signature"; then
+        # .comment section (15 points)
+        if [ $readable -eq 1 ] && [ -n "$comment" ] && echo "$comment" | grep -qi "$signature"; then
             confidence=$((confidence + 15))
         fi
         
-        if [ -n "$fileinfo" ] && echo "$fileinfo" | grep -qi "$signature"; then
+        # Strings (10 points)
+        if [ $readable -eq 1 ] && [ -n "$strings_sample" ] && echo "$strings_sample" | grep -qi "$signature"; then
             confidence=$((confidence + 10))
         fi
         
+        # File info (5 points)
+        if [ -n "$fileinfo" ] && echo "$fileinfo" | grep -qi "$signature"; then
+            confidence=$((confidence + 5))
+        fi
+        
+        # Filename (5 points)
         if echo "$bin_name" | grep -qi "$signature"; then
             confidence=$((confidence + 5))
         fi
         
-        if [ $confidence -ge 30 ]; then
+        # If confidence is high enough, store the match
+        if [ $confidence -ge 25 ]; then
             local found=0
             for i in "${!matches[@]}"; do
                 if [[ "${matches[$i]}" == *"|$signature|"* ]]; then
@@ -673,6 +678,7 @@ identify_binary() {
         fi
     fi
     
+    # Manual analysis for unreadable binaries
     if [ $readable -eq 0 ] && [ -n "$version" ]; then
         echo -e "\n${YELLOW}[*] Manual Analysis (binary unreadable)${NC}"
         echo -e "  Version output: ${CYAN}\"$version\"${NC}"
